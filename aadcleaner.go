@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,9 +16,12 @@ import (
 )
 
 func main() {
-	client, adapter, err := setupClient("TenantID",
-		"ClientID", "ClientSecret",
-		[]string{"https://graph.microsoft.com/.default"})
+	os.Setenv("TENANT_ID", "")
+	os.Setenv("CLIENT_ID", "")
+	os.Setenv("CLIENT_SECRET", "")
+	os.Setenv("REPORT_ONLY", "true")
+	client, adapter, err := setupClient(os.Getenv("TENANT_ID"), os.Getenv("CLIENT_ID"),
+		os.Getenv("CLIENT_SECRET"), []string{"https://graph.microsoft.com/.default"})
 	if err != nil {
 		return
 	}
@@ -44,16 +48,26 @@ func main() {
 				hasNotExpired = expiresOn.After(time.Now())
 			}
 		}
-		fmt.Printf("%s %v %v %v\n", *app.GetDisplayName(), isOlderThanThreeMonths, hasSignIn, hasNotExpired)
+		willBeDeleted := isOlderThanThreeMonths && !hasSignIn && !hasNotExpired
+		fmt.Printf("DisplayName=%s isOlderThanThreeMonths=%v hasSignIns=%v hasNotExpired=%v willBeDeleted=%v\n", *app.GetDisplayName(), isOlderThanThreeMonths, hasSignIn, hasNotExpired, willBeDeleted)
+		if os.Getenv("REPORT_ONLY") == "false" && willBeDeleted {
+			err := client.ApplicationsById(*app.GetId()).Delete()
+			if err != nil {
+				fmt.Printf("Was not able to delete application %v with id=%v: %v", *app.GetDisplayName(),
+					*app.GetId(), err)
+			}
+		}
 	}
 }
 
 func getApplications(client *msgraph.GraphServiceClient, adapter *msgraph.GraphRequestAdapter) ([]models.Applicationable, error) {
 	enableAdvancedQueryCapabilities := true
+	filter := "displayName eq 'ipt-app-registration-cleaner'"
 	queryParams := applications.ApplicationsRequestBuilderGetQueryParameters{
-		Select:  []string{"appId", "displayName", "createdDateTime", "tags"},
+		Select:  []string{"id", "appId", "displayName", "createdDateTime", "tags"},
 		Orderby: []string{"displayName"},
 		Count:   &enableAdvancedQueryCapabilities,
+		Filter:  &filter,
 	}
 	reqConfig := applications.ApplicationsRequestBuilderGetRequestConfiguration{
 		QueryParameters: &queryParams,
